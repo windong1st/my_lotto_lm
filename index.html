@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>JS Lotto ML Analyzer</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; }
+        #log { margin-top: 20px; color: #555; font-size: 0.9em; white-space: pre-wrap; }
+        .ball { display: inline-block; width: 40px; height: 40px; line-height: 40px; 
+                border-radius: 50%; background: #fbc02d; margin: 5px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>로또 번호 예측기 (ML 기반)</h1>
+    <button id="trainBtn">학습 및 예측 시작</button>
+    <div id="result"></div>
+    <div id="log"></div>
+
+    <script>
+        // 1. 샘플 데이터 (실제 구현 시 외부 JSON 파일을 fetch 하세요)
+        const rawData = [
+            [1, 12, 16, 19, 23, 43],
+            [3, 15, 22, 38, 41, 45],
+            [10, 23, 29, 33, 37, 40],
+            // ... 더 많은 과거 데이터를 넣을수록 정확도가 (이론상) 올라갑니다.
+        ];
+
+        async function runML() {
+            const logDiv = document.getElementById('log');
+            const resultDiv = document.getElementById('result');
+            logDiv.innerText = "데이터 준비 중...\n";
+
+            // 2. 데이터 전처리 (0~1 사이로 정규화)
+            const inputData = rawData.slice(0, -1); // 학습 입력 (n회차)
+            const targetData = rawData.slice(1);  // 학습 정답 (n+1회차)
+
+            const xs = tf.tensor2d(inputData.map(d => d.map(v => v / 45)));
+            const ys = tf.tensor2d(targetData.map(d => d.map(v => v / 45)));
+
+            // 3. 모델 정의
+            const model = tf.sequential();
+            model.add(tf.layers.dense({units: 128, activation: 'relu', inputShape: [6]}));
+            model.add(tf.layers.dense({units: 64, activation: 'relu'}));
+            model.add(tf.layers.dense({units: 6})); // 6개의 번호 출력
+
+            model.compile({optimizer: 'adam', loss: 'meanSquaredError'});
+
+            // 4. 모델 학습
+            logDiv.innerText += "학습 시작 (브라우저 자원 사용)...\n";
+            await model.fit(xs, ys, {
+                epochs: 200,
+                callbacks: {
+                    onEpochEnd: (epoch, logs) => {
+                        if(epoch % 50 === 0) logDiv.innerText += `Epoch ${epoch}: Loss = ${logs.loss.toFixed(6)}\n`;
+                    }
+                }
+            });
+
+            // 5. 예측
+            logDiv.innerText += "예측 중...\n";
+            const lastData = tf.tensor2d([rawData[rawData.length - 1].map(v => v / 45)]);
+            const prediction = model.predict(lastData);
+            const pData = await prediction.data();
+
+            // 정규화 해제 및 반올림, 중복 제거 로직 필요
+            let resultNums = Array.from(pData).map(v => Math.round(v * 45));
+            resultNums = [...new Set(resultNums)].filter(v => v >= 1 && v <= 45).slice(0, 6);
+            
+            // 번호가 부족할 경우 랜덤 채우기 (보정)
+            while(resultNums.length < 6) {
+                let r = Math.floor(Math.random() * 45) + 1;
+                if(!resultNums.includes(r)) resultNums.push(r);
+            }
+
+            resultDiv.innerHTML = `<h3>예측 번호:</h3>` + 
+                resultNums.sort((a,b)=>a-b).map(n => `<span class="ball">${n}</span>`).join('');
+            logDiv.innerText += "\n예측 완료!";
+        }
+
+        document.getElementById('trainBtn').addEventListener('click', runML);
+    </script>
+</body>
+</html>
