@@ -2,83 +2,115 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>JS Lotto ML Analyzer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 로또 번호 분석기</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; }
-        #log { margin-top: 20px; color: #555; font-size: 0.9em; white-space: pre-wrap; }
-        .ball { display: inline-block; width: 40px; height: 40px; line-height: 40px; 
-                border-radius: 50%; background: #fbc02d; margin: 5px; font-weight: bold; }
+        :root { --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; --primary: #fbc02d; }
+        body { background-color: var(--bg); color: var(--text); font-family: 'Pretendard', sans-serif; text-align: center; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: var(--card); padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        button { background: var(--primary); color: #000; border: none; padding: 15px 30px; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1.1em; transition: 0.3s; }
+        button:disabled { background: #555; cursor: wait; }
+        .ball-container { margin-top: 30px; display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; }
+        .ball { width: 45px; height: 45px; line-height: 45px; border-radius: 50%; background: #444; color: #fff; font-weight: bold; font-size: 1.2em; border: 2px solid var(--primary); }
+        #log { margin-top: 20px; font-size: 0.85em; color: #888; text-align: left; background: #000; padding: 10px; border-radius: 5px; height: 100px; overflow-y: auto; white-space: pre-wrap; }
     </style>
 </head>
 <body>
-    <h1>로또 번호 예측기 (ML 기반)</h1>
-    <button id="trainBtn">학습 및 예측 시작</button>
-    <div id="result"></div>
-    <div id="log"></div>
 
-    <script>
-        // 1. 샘플 데이터 (실제 구현 시 외부 JSON 파일을 fetch 하세요)
-        const rawData = [
-            [1, 12, 16, 19, 23, 43],
-            [3, 15, 22, 38, 41, 45],
-            [10, 23, 29, 33, 37, 40],
-            // ... 더 많은 과거 데이터를 넣을수록 정확도가 (이론상) 올라갑니다.
-        ];
+<div class="container">
+    <h1>🎯 AI Lotto Analyzer</h1>
+    <p>엑셀 데이터를 기반으로 딥러닝 학습을 진행합니다.</p>
+    
+    <button id="runBtn">데이터 로드 및 AI 학습 시작</button>
+    
+    <div class="ball-container" id="resultArea">
+        </div>
 
-        async function runML() {
-            const logDiv = document.getElementById('log');
-            const resultDiv = document.getElementById('result');
-            logDiv.innerText = "데이터 준비 중...\n";
+    <div id="log">준비 완료. 버튼을 눌러주세요.</div>
+</div>
 
-            // 2. 데이터 전처리 (0~1 사이로 정규화)
-            const inputData = rawData.slice(0, -1); // 학습 입력 (n회차)
-            const targetData = rawData.slice(1);  // 학습 정답 (n+1회차)
+<script>
+    const logDiv = document.getElementById('log');
+    const resultArea = document.getElementById('resultArea');
+    const runBtn = document.getElementById('runBtn');
 
-            const xs = tf.tensor2d(inputData.map(d => d.map(v => v / 45)));
-            const ys = tf.tensor2d(targetData.map(d => d.map(v => v / 45)));
+    function logger(msg) {
+        logDiv.innerText += `\n> ${msg}`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
 
-            // 3. 모델 정의
+    async function startAnalysis() {
+        runBtn.disabled = true;
+        resultArea.innerHTML = '';
+        
+        try {
+            // 1. JSON 데이터 로드
+            logger("lotto_data.json 파일을 불러오는 중...");
+            const response = await fetch('./lotto_data.json');
+            const rawData = await response.json();
+            
+            // 데이터 정렬 (회차순)
+            rawData.sort((a, b) => a.drwNo - b.drwNo);
+            const lottoNumbers = rawData.map(d => d.numbers);
+            logger(`총 ${lottoNumbers.length}개의 회차 데이터를 확인했습니다.`);
+
+            // 2. 데이터 전처리 (입력: n회차, 출력: n+1회차)
+            const xData = lottoNumbers.slice(0, -1).map(nums => nums.map(v => v / 45));
+            const yData = lottoNumbers.slice(1).map(nums => nums.map(v => v / 45));
+            
+            const xs = tf.tensor2d(xData);
+            const ys = tf.tensor2d(yData);
+
+            // 3. 모델 정의 (간단한 심층 신경망)
             const model = tf.sequential();
             model.add(tf.layers.dense({units: 128, activation: 'relu', inputShape: [6]}));
             model.add(tf.layers.dense({units: 64, activation: 'relu'}));
-            model.add(tf.layers.dense({units: 6})); // 6개의 번호 출력
+            model.add(tf.layers.dense({units: 6})); 
 
             model.compile({optimizer: 'adam', loss: 'meanSquaredError'});
 
             // 4. 모델 학습
-            logDiv.innerText += "학습 시작 (브라우저 자원 사용)...\n";
+            logger("AI 학습 시작 (사용자 브라우저 리소스 사용)...");
             await model.fit(xs, ys, {
-                epochs: 200,
+                epochs: 150,
                 callbacks: {
                     onEpochEnd: (epoch, logs) => {
-                        if(epoch % 50 === 0) logDiv.innerText += `Epoch ${epoch}: Loss = ${logs.loss.toFixed(6)}\n`;
+                        if(epoch % 30 === 0) logger(`Epoch ${epoch}: Loss = ${logs.loss.toFixed(6)}`);
                     }
                 }
             });
 
-            // 5. 예측
-            logDiv.innerText += "예측 중...\n";
-            const lastData = tf.tensor2d([rawData[rawData.length - 1].map(v => v / 45)]);
-            const prediction = model.predict(lastData);
+            // 5. 다음 회차 예측
+            logger("학습 완료! 다음 회차 번호를 예측합니다...");
+            const lastNumbers = tf.tensor2d([lottoNumbers[lottoNumbers.length - 1].map(v => v / 45)]);
+            const prediction = model.predict(lastNumbers);
             const pData = await prediction.data();
 
-            // 정규화 해제 및 반올림, 중복 제거 로직 필요
+            // 정규화 해제 및 중복 제거
             let resultNums = Array.from(pData).map(v => Math.round(v * 45));
-            resultNums = [...new Set(resultNums)].filter(v => v >= 1 && v <= 45).slice(0, 6);
+            resultNums = [...new Set(resultNums)].filter(v => v >= 1 && v <= 45).sort((a, b) => a - b);
             
-            // 번호가 부족할 경우 랜덤 채우기 (보정)
+            // 6개 채우기 보정
             while(resultNums.length < 6) {
                 let r = Math.floor(Math.random() * 45) + 1;
                 if(!resultNums.includes(r)) resultNums.push(r);
             }
+            resultNums.sort((a, b) => a - b);
 
-            resultDiv.innerHTML = `<h3>예측 번호:</h3>` + 
-                resultNums.sort((a,b)=>a-b).map(n => `<span class="ball">${n}</span>`).join('');
-            logDiv.innerText += "\n예측 완료!";
+            // 결과 화면 표시
+            resultArea.innerHTML = resultNums.map(n => `<div class="ball">${n}</div>`).join('');
+            logger("예측 성공! 행운을 빕니다.");
+
+        } catch (error) {
+            logger(`에러 발생: ${error.message}`);
+            console.error(error);
+        } finally {
+            runBtn.disabled = false;
         }
+    }
 
-        document.getElementById('trainBtn').addEventListener('click', runML);
-    </script>
+    runBtn.addEventListener('click', startAnalysis);
+</script>
 </body>
 </html>
